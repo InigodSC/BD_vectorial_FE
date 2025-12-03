@@ -3,7 +3,6 @@
 Este documento describe el flujo de datos para la Extracción, Transformación y Carga (ETL) de datos vectoriales, desde un entorno local basado en PostgreSQL hasta la plataforma de análisis y consumo de Inteligencia Artificial en la nube de Azure.
 
 
-
 ## 1 CREACIÓN DE BD Y CARGA DE DATOS EN POSTGRESQL
 
 El objetivo es crear una Base de Datos Vectorial (pgvector) y cargar las imágenes del dataset FER2013.
@@ -47,7 +46,7 @@ Una vez que el contenedor está corriendo, la extensión debe activarse en la ba
         docker exec -it <nombre del contenedor> psql -U <usuario> -d <nombre de la bd>
     ```
 2.  **EJECUTAR SQL:** En 'fer_vct=#', escribe:
-    ```bash
+    ```sql
         CREATE EXTENSION vector;
     ```
     (Escribe \q y Enter para salir)
@@ -185,5 +184,80 @@ print(f"Total de imágenes procesadas e insertadas: {total_images}")
 Navega a la carpeta del archivo 'cargar_fer.py' en tu Terminal y ejecuta:
 ```bash
 python cargar_fer.py
+```
+
+## 2. Ingesta y Migración Inicial a la nube
+
+Esta fase cubre la migración de la base de datos local 'fer_vct' a Azure Database for PostgreSQL - Flexible Server.
+Se utilizarán las herramientas nativas de PostgreSQL: `pg_dump` y `pg_restore`.
+
+### 1. PRERREQUISITOS IMPORTANTES
+
+* **HERRAMIENTAS**: pg_dump y pg_restore deben estar accesibles desde tu terminal. Si no lo están, usa la ruta completa del ejecutable (Ej: "C:\Program Files\PostgreSQL\18\bin\pg_dump.exe").
+* **FIREWALL DE AZURE**: La IP pública de tu máquina debe estar permitida en las reglas de Firewall de tu servidor Azure.
+* **CREDENCIALES**: Ten a mano el Host Name, Usuario Administrador (<AZURE_ADMIN>) y la Contraseña de tu servidor de Azure.
+
+
+### 2. EXPORTAR LA BASE DE DATOS LOCAL (pg_dump)
+
+Se crea un archivo de respaldo en la carpeta donde hemos creado.
+
+**COMANDO DE EXPORTACIÓN:**
+```bash
+    <RUTA_A_PG_DUMP> -h localhost -p 5433 -U postgres -Fc -d fer_vct > fer_vct_backup.dump
+```
+
+### 3. PREPARACIÓN EN AZURE POSTGRESQL
+
+Primero tenemos que haber desplegado el servicio de Azure Sql for PostgreSQL. En la version de postgre, podremos la misma que tenemos en local.
+
+![alt text](image-4.png)
+
+Luego en la seccion de `Networking` vamos a marcar las casillas que estan marcadas en la imagen y vamos a añadir nuestra ip publica para poder acceder desde nuestro equipo.
+
+![alt text](image-5.png)
+
+#### PERMITIR LA EXTENSIÓN EN EL PORTAL DE AZURE (**IMPORTANTE**)
+
+Tienes que modificar un parámetro del servidor para indicarle a Azure que el usuario administrador puede habilitar esta extensión (pgvector). Este paso es obligatorio en Azure Flexible Server.
+
+1. NAVEGA AL SERVIDOR: Ve al Portal de Azure y selecciona tu servidor PostgreSQL llamado pgvector.
+
+2. PARÁMETROS DEL SERVIDOR: En el menú de la izquierda, busca y selecciona Parámetros del servidor (o Parameters).
+
+3. BUSCA AZURE.EXTENSIONS: En el campo de búsqueda de parámetros, escribe azure.extensions.
+
+4. AÑADE VECTOR: Selecciona `VECTOR` en la columna `Value`
+
+5. HAZ CLIC EN GUARDAR (SAVE): Haz clic en Guardar en la parte superior para aplicar los cambios en la configuración del servidor.
+
+![alt text](image-6.png)
+
+Desde la terminal del portal de Azure vamos nos vamos a conectar a nuestro servidor y a habilitar la extensión pgvector (**IMPORTANTE**):
+```bash
+psql -h <AZURE_HOST_NAME> -p 5432 -U <AZURE_ADMIN> -d <NOMBRE_DB_AZURE>
+
+CREATE EXTENSION vector;
+```
+![alt text](image-7.png)
+
+### 4. IMPORTAR LA BASE DE DATOS A AZURE (pg_restore)
+
+Utiliza pg_restore para cargar el archivo .dump en la base de datos de Azure (*esto se hace desde la terminal en local no desde Azure*).
+
+COMANDO DE IMPORTACIÓN:
+
+```bash
+    <RUTA_A_PG_RESTORE> -h <AZURE_HOST_NAME> -p 5432 -U <AZURE_ADMIN> -d <NOMBRE_DB_AZURE> -v "<RUTA_ABSOLUTA_AL_DUMP>"
+```
+![alt text](image-8.png)
+
+### 5. VERIFICACIÓN
+
+Conéctate a la DB de Azure para confirmar la migración. Esto lo podemos hacer o desde la shell de Azure o podemos conectarnos desde PostgreSQL en local, con la ruta de Azure.
+
+Verificar conteo de filas:
+```sql
+SELECT COUNT(*) FROM imagenes_fer;
 ```
 
