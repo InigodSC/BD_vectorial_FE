@@ -2,69 +2,180 @@
 
 Este documento describe el flujo de datos para la Extracción, Transformación y Carga (ETL) de datos vectoriales, desde un entorno local basado en PostgreSQL hasta la plataforma de análisis y consumo de Inteligencia Artificial en la nube de Azure.
 
-## 1. Creación de BD y Carga de Datos en PostgreSQL
 
-### 1.1. Instalación de la Extensión pgvector (Windows)
 
-La instalación de `pgvector` requiere la **compilación** del código fuente para que funcione con tu servidor PostgreSQL en Windows.
+## 1 CREACIÓN DE BD Y CARGA DE DATOS EN POSTGRESQL
 
-#### Requisitos Dobles: Compilador (MSVC) y Utilidad `make` (MSYS2)
+El objetivo es crear una Base de Datos Vectorial (pgvector) y cargar las imágenes del dataset FER2013.
+Para ello, utilizaremos **Docker**, que tiene un contenedor con el servidor **PostgreSQL** y la extensión **pgvector** preinstalados.
 
-* **1. Compilador de C++ (MSVC):** Necesario para el comando **`cl`**. Se obtiene instalando las **Visual Studio Build Tools** y marcando **"Desarrollo para el escritorio con C++"**.
-* **2. Utilidad `make.exe`:** Necesaria para ejecutar el `Makefile`. Se obtiene a través de **MSYS2** (`pacman -S make`).
 
-#### Clonar y Configurar el Entorno (Solución Final a 'cl' y 'pg_config')
+### 1.1. CREACIÓN DE LA BASE DE DATOS Y LA TABLA
 
-Debido a que `make` y `cl` usan entornos diferentes, debemos configurar el terminal MSYS2 (donde `make` funciona sin errores de DLL) para que conozca las rutas de Visual Studio.
+#### DESCARGA Y EJECUCIÓN DEL CONTENEDOR DOCKER (Pgvector)
 
-1.  **Clonar el Repositorio (Recomendado en PowerShell):**
-    ```bash
-    git clone https://github.com/pgvector/pgvector.git
+Usaremos la imagen ankane/pgvector.
+
+1.  **LIMPIEZA (Opcional):** Si tienes un contenedor previo llamado 'mi_postgres_pgvector' o el puerto 5433 en uso, elimínalo:
+
+    ```powershell
+        docker stop mi_postgres_pgvector
+        docker rm mi_postgres_pgvector
     ```
 
-2.  **Abrir el Terminal MSYS2:** Abre el programa llamado **MSYS2 MinGW 64-bit**.
+2.  **EJECUTAR EL CONTENEDOR:** Ejecuta el siguiente comando en una sola línea en tu Terminal (PowerShell). Usamos el puerto **5433** en el host para evitar conflictos.
 
-3.  **Navegar y Definir Rutas de PostgreSQL (Usando Ruta Corta):** La ruta corta (`PROGRA~1`) es crucial para evitar errores de espacios en MSYS2.
+    ```powershell
+        docker run -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=1234 -e POSTGRES_DB=pruebaVectorial --name mi_postgres_pgvector -p 5433:5432 -d ankane/pgvector
+    ```
+    Esto tambien se puede hacer desde Docker Desktop _---------------------- SAD SAD ASD ASD ASD ASD 
 
+**DETALLES DE CONFIGURACIÓN**
+* Puerto de tu PC (Host): `5433` (u otro en el que no este alojado ya algun servidor en postgreSql)
+* Usuario/Contraseña: \<Tu usuario> / \<Tu contraseña>
+* Base de datos creada: `fer_vct`
+
+### HABILITACIÓN DE LA EXTENSIÓN PGVECTOR
+
+Una vez que el contenedor está corriendo, la extensión debe activarse en la base de datos:
+
+1.  **CONECTAR A LA CONSOLA (Terminal):**
+    docker exec -it mi_postgres_pgvector psql -U postgres -d pruebaVectorial
+
+2.  **EJECUTAR SQL:** En 'pruebaVectorial=#', escribe:
     ```bash
-    cd /c/pgvector 
+        CREATE EXTENSION vector;
+    ```
+    (Escribe \q y Enter para salir)
+
+### CONEXIÓN DESDE PGADMIN 4 Y CREACIÓN DE LA TABLA
+
+1.  **CONEXIÓN EN PGADMIN:** Crea un nuevo servidor con la siguiente configuración:
+    * Host name/address: `localhost`
+    * Port (Puerto): `5433` (u otro en el que no este alojado ya algun servidor en postgreSql)
+    * Username: \<Tu usuario>
+    * Password: \<Tu contraseña>
+
+2.  **CREACIÓN DE LA TABLA:** Una vez conectado a la base de datos 'pruebaVectorial', ejecuta este SQL en la Query Tool. Usaremos 512 dimensiones, un tamaño común para embeddings generados por modelos como ResNet.
+
+CREATE TABLE fer2013_embeddings (
+    id bigserial PRIMARY KEY,
+    filepath VARCHAR(255) NOT NULL, -- Ruta o nombre del archivo original
+    emotion VARCHAR(50) NOT NULL, -- Etiqueta de emoción (ej: Happy, Angry)
+    vector_embedding VECTOR(512) -- Columna que almacenará el vector numérico
+);
+
+--------------------------------------------------------------------------------
+
+1.2. CARGA DE DATOS VECTORIALES (EMBEDDINGS)
+--------------------------------------------------------------------------------
+
+### A. EXPLICACIÓN DEL PROCESO DE CARGA
+
+La base de datos vectorial solo almacena **vectores numéricos**, no imágenes. Por lo tanto, el proceso requiere un script de Python que:
+
+1.  Utilice un **Modelo de Deep Learning pre-entrenado** (como ResNet) para extraer las características de cada imagen.
+2.  Convierta esas características en una **lista de 512 números (el embedding)**.
+3.  Utilice la librería **psycopg2** para enviar ese vector a la columna VECTOR(512) de PostgreSQL.
+
+### B. DATASET FER2013
+
+El código está adaptado para procesar este dataset de expresiones faciales:
+
+Enlace al Dataset: https://www.kaggle.com/datasets/msambare/fer2013/data
+
+### C. SCRIPT DE PYTHON (load_embeddings.py)
+
+1.  **INSTALAR LIBRERÍAS:**
+    pip install psycopg2-binary numpy torch torchvision
+
+2.  **SCRIPT:** Guarda el siguiente código como 'load_embeddings.py'. **¡IMPORTANTE!** Reemplaza la variable RUTA_DATASET con la ubicación real de tu carpeta 'train'.
+
+import psycopg2
+import torch
+from torchvision import models, transforms
+from PIL import Image
+import os
+import glob 
+
+# --- CONFIGURACIÓN ---
+# ¡IMPORTANTE! Reemplaza esto con la ruta donde está tu carpeta 'train' del dataset FER2013
+RUTA_DATASET = 'C:/Ruta/A/Donde/Descargaste/fer2013/train' 
+
+DB_PARAMS = {
+    'dbname': 'pruebaVectorial',
+    'user': 'postgres',
+    'password': '1234',
+    'host': 'localhost',
+    'port': '5433' 
+}
+
+# --- 1. CONFIGURACIÓN DEL MODELO DE EMBEDDING (ResNet18) ---
+model = models.resnet18(weights=models.ResNet18_Weights.IMAGENET1K_V1)
+model.fc = torch.nn.Identity() 
+model.eval() 
+
+transform = transforms.Compose([
+    transforms.Grayscale(num_output_channels=3), 
+    transforms.Resize(256),
+    transforms.CenterCrop(224),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+])
+
+# --- 2. CONEXIÓN E INICIO ---
+try:
+    conn = psycopg2.connect(**DB_PARAMS)
+    cur = conn.cursor()
+    print("Conexión a la base de datos pgvector exitosa.")
+except Exception as e:
+    print(f"Error al conectar a la base de datos: {e}")
+    exit()
+
+# --- 3. PROCESAR IMÁGENES E INSERTAR VECTORES ---
+total_images = 0
+for emotion_folder in os.listdir(RUTA_DATASET):
+    emotion_path = os.path.join(RUTA_DATASET, emotion_folder)
     
-    export PGROOT="/c/PROGRA~1/PostgreSQL/18"
-    export PG_CONFIG="/c/PROGRA~1/PostgreSQL/18/bin/pg_config.exe"
-    ```
+    if os.path.isdir(emotion_path):
+        for img_path in glob.glob(os.path.join(emotion_path, '*.png')):
+            
+            try:
+                # 1. Cargar y Transformar
+                img = Image.open(img_path)
+                input_tensor = transform(img)
+                input_batch = input_tensor.unsqueeze(0)
 
-4.  **Añadir el Compilador al PATH (Solución al error 'cl'):** Debes añadir la ruta de tu compilador MSVC al PATH de MSYS2.
+                # 2. Generar el Vector
+                with torch.no_grad():
+                    embedding = model(input_batch).squeeze().numpy()
 
-    * **Paso Previo:** Encuentra la ruta exacta del `cl.exe` de tu instalación de Visual Studio (ej: `C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.37.32822\bin\Hostx64\x64`).
+                # 3. Preparar para la DB
+                vector_para_db = embedding.tolist() 
+                relative_filepath = os.path.join(emotion_folder, os.path.basename(img_path))
+                
+                # 4. Insertar en pgvector
+                insert_query = """
+                INSERT INTO fer2013_embeddings (filepath, emotion, vector_embedding)
+                VALUES (%s, %s, %s);
+                """
+                cur.execute(insert_query, (relative_filepath, emotion_folder, vector_para_db))
+                total_images += 1
+                
+            except Exception as e:
+                print(f"Error procesando {img_path}: {e}")
+                continue
 
-    REEMPLAZA la ruta con la que encontraste en tu sistema:
-    ```bash 
-    export PATH=$PATH:"/c/Program Files/Microsoft Visual Studio/2022/Community/VC/Tools/MSVC/14.37.32822/bin/Hostx64/x64"
-    ```
+# --- 4. FINALIZAR TRANSACCIÓN ---
+conn.commit()
+cur.close()
+conn.close()
+print(f"--- Proceso Finalizado ---")
+print(f"Total de imágenes procesadas e insertadas: {total_images}")
 
-#### Compilación e Instalación Final
+### D. EJECUTAR EL SCRIPT
 
-Ejecuta los comandos para compilar (`make`) e instalar (`make install`).
+Navega a la carpeta del archivo 'load_embeddings.py' en tu Terminal y ejecuta:
 
-```bash
-make
-make install
-```
-
-### 1.2. Habilitación de pgvector en PgAdmin 4
-
-Una vez que los archivos binarios de la extensión han sido copiados al servidor (tras ejecutar `make install`), puedes activarla en la base de datos específica donde deseas almacenar y consultar los vectores.
-
-1.  **Abrir PgAdmin 4:** Conéctate a tu servidor PostgreSQL.
-2.  **Abrir Query Tool:** Selecciona la base de datos de destino (o crea una nueva) y abre la herramienta de consulta (**Query Tool**).
-3.  **Ejecutar el Comando SQL:** Ejecuta el siguiente comando para habilitar la extensión `vector`:
-
-    ```sql
-    CREATE EXTENSION vector;
-    ```
-
-4.  **Verificación:** Para confirmar la instalación, navega en el árbol de objetos de PgAdmin:
-    * Databases $\rightarrow$ Tu\_Base\_de\_Datos $\rightarrow$ Schemas $\rightarrow$ public $\rightarrow$ **Extensions**.
-    * La extensión **`vector`** deberá aparecer en la lista, indicando que está lista para ser utilizada.
-
+python load_embeddings.py
 
