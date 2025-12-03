@@ -7,7 +7,7 @@ import glob
 
 
 # ¡IMPORTANTE! Reemplaza esto con la ruta donde está tu carpeta 'train' del dataset FER2013
-RUTA_DATASET = r"C:\Users\Íñigo\Downloads\borrar\BD_vectorial_FE\dataset\train" 
+RUTA_DATASET = 'C:/Ruta/A/Donde/Descargaste/fer2013/train' 
 
 DB_PARAMS = {
     'dbname': 'fer_vct',
@@ -45,7 +45,7 @@ for emotion_folder in os.listdir(RUTA_DATASET):
     emotion_path = os.path.join(RUTA_DATASET, emotion_folder)
     
     if os.path.isdir(emotion_path):
-        for img_path in glob.glob(os.path.join(emotion_path, '*.jpg')):
+        for img_path in glob.glob(os.path.join(emotion_path, '*.png')):
             
             try:
                 # 1. Cargar y Transformar
