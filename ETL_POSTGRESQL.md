@@ -26,29 +26,33 @@ Usaremos la imagen ankane/pgvector.
 2.  **EJECUTAR EL CONTENEDOR:** Ejecuta el siguiente comando en una sola línea en tu Terminal (PowerShell). Usamos el puerto **5433** en el host para evitar conflictos.
 
     ```powershell
-        docker run -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=1234 -e POSTGRES_DB=pruebaVectorial --name mi_postgres_pgvector -p 5433:5432 -d ankane/pgvector
+        docker run -e POSTGRES_USER=<usuario> -e POSTGRES_PASSWORD=<contraseña> -e POSTGRES_DB=<nombre de la bd> --name <nombre del contenedor> -p 5433:5432 -d ankane/pgvector
     ```
-    Esto tambien se puede hacer desde Docker Desktop _---------------------- SAD SAD ASD ASD ASD ASD 
+    Esto tambien se puede hacer desde Docker Desktop. Para ello buscamos la imagen y luego iniciamos le contenedor con la misma configuracion que por comando.
+    ![alt text](image.png)
+    ![alt text](image-1.png)
+    ![alt text](image-2.png)
 
 **DETALLES DE CONFIGURACIÓN**
 * Puerto de tu PC (Host): `5433` (u otro en el que no este alojado ya algun servidor en postgreSql)
 * Usuario/Contraseña: \<Tu usuario> / \<Tu contraseña>
 * Base de datos creada: `fer_vct`
 
-### HABILITACIÓN DE LA EXTENSIÓN PGVECTOR
+#### HABILITACIÓN DE LA EXTENSIÓN PGVECTOR
 
 Una vez que el contenedor está corriendo, la extensión debe activarse en la base de datos:
 
 1.  **CONECTAR A LA CONSOLA (Terminal):**
-    docker exec -it mi_postgres_pgvector psql -U postgres -d pruebaVectorial
-
-2.  **EJECUTAR SQL:** En 'pruebaVectorial=#', escribe:
+    ```bash
+        docker exec -it <nombre del contenedor> psql -U <usuario> -d <nombre de la bd>
+    ```
+2.  **EJECUTAR SQL:** En 'fer_vct=#', escribe:
     ```bash
         CREATE EXTENSION vector;
     ```
     (Escribe \q y Enter para salir)
 
-### CONEXIÓN DESDE PGADMIN 4 Y CREACIÓN DE LA TABLA
+#### CONEXIÓN DESDE PGADMIN 4 Y CREACIÓN DE LA TABLA
 
 1.  **CONEXIÓN EN PGADMIN:** Crea un nuevo servidor con la siguiente configuración:
     * Host name/address: `localhost`
@@ -56,21 +60,22 @@ Una vez que el contenedor está corriendo, la extensión debe activarse en la ba
     * Username: \<Tu usuario>
     * Password: \<Tu contraseña>
 
-2.  **CREACIÓN DE LA TABLA:** Una vez conectado a la base de datos 'pruebaVectorial', ejecuta este SQL en la Query Tool. Usaremos 512 dimensiones, un tamaño común para embeddings generados por modelos como ResNet.
+2.  **CREACIÓN DE LA TABLA:** Una vez conectado a la base de datos 'fer_vct', ejecuta este SQL en la Query Tool. Usaremos 512 dimensiones, un tamaño común para embeddings generados por modelos como ResNet.
 
-CREATE TABLE fer2013_embeddings (
-    id bigserial PRIMARY KEY,
+``` sql
+CREATE TABLE imagenes_fer (
+    id bigserial PRIMARY KEY, 
     filepath VARCHAR(255) NOT NULL, -- Ruta o nombre del archivo original
-    emotion VARCHAR(50) NOT NULL, -- Etiqueta de emoción (ej: Happy, Angry)
-    vector_embedding VECTOR(512) -- Columna que almacenará el vector numérico
+    emotion VARCHAR(50) NOT NULL, -- Etiqueta de emoción (ej: Feliz, Triste)
+    vector VECTOR(512) -- Columna que almacenará el vector numérico
 );
+```
+![alt text](image-3.png)
 
---------------------------------------------------------------------------------
 
-1.2. CARGA DE DATOS VECTORIALES (EMBEDDINGS)
---------------------------------------------------------------------------------
+### 1.2. CARGA DE DATOS VECTORIALES (EMBEDDINGS)
 
-### A. EXPLICACIÓN DEL PROCESO DE CARGA
+#### EXPLICACIÓN DEL PROCESO DE CARGA
 
 La base de datos vectorial solo almacena **vectores numéricos**, no imágenes. Por lo tanto, el proceso requiere un script de Python que:
 
@@ -78,19 +83,21 @@ La base de datos vectorial solo almacena **vectores numéricos**, no imágenes. 
 2.  Convierta esas características en una **lista de 512 números (el embedding)**.
 3.  Utilice la librería **psycopg2** para enviar ese vector a la columna VECTOR(512) de PostgreSQL.
 
-### B. DATASET FER2013
+#### DATASET FER2013
 
 El código está adaptado para procesar este dataset de expresiones faciales:
 
 Enlace al Dataset: https://www.kaggle.com/datasets/msambare/fer2013/data
 
-### C. SCRIPT DE PYTHON (load_embeddings.py)
+#### SCRIPT DE PYTHON (cargar_fer.py)
 
 1.  **INSTALAR LIBRERÍAS:**
-    pip install psycopg2-binary numpy torch torchvision
+    ``` bash
+        pip install psycopg2-binary numpy torch torchvision
+    ```
+2.  **SCRIPT:** Guarda el siguiente código como 'cargar_fer.py'. **¡IMPORTANTE!** Reemplaza la variable RUTA_DATASET con la ubicación real de tu carpeta 'train'.
 
-2.  **SCRIPT:** Guarda el siguiente código como 'load_embeddings.py'. **¡IMPORTANTE!** Reemplaza la variable RUTA_DATASET con la ubicación real de tu carpeta 'train'.
-
+```python
 import psycopg2
 import torch
 from torchvision import models, transforms
@@ -98,12 +105,12 @@ from PIL import Image
 import os
 import glob 
 
-# --- CONFIGURACIÓN ---
+
 # ¡IMPORTANTE! Reemplaza esto con la ruta donde está tu carpeta 'train' del dataset FER2013
 RUTA_DATASET = 'C:/Ruta/A/Donde/Descargaste/fer2013/train' 
 
 DB_PARAMS = {
-    'dbname': 'pruebaVectorial',
+    'dbname': 'fer_vct',
     'user': 'postgres',
     'password': '1234',
     'host': 'localhost',
@@ -172,10 +179,11 @@ cur.close()
 conn.close()
 print(f"--- Proceso Finalizado ---")
 print(f"Total de imágenes procesadas e insertadas: {total_images}")
+```
+#### EJECUTAR EL SCRIPT
 
-### D. EJECUTAR EL SCRIPT
-
-Navega a la carpeta del archivo 'load_embeddings.py' en tu Terminal y ejecuta:
-
-python load_embeddings.py
+Navega a la carpeta del archivo 'cargar_fer.py' en tu Terminal y ejecuta:
+```bash
+python cargar_fer.py
+```
 
