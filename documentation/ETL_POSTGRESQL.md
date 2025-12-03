@@ -163,7 +163,7 @@ for emotion_folder in os.listdir(RUTA_DATASET):
                 
                 # 4. Insertar en pgvector
                 insert_query = """
-                INSERT INTO fer2013_embeddings (filepath, emotion, vector_embedding)
+                INSERT INTO imagenes_fer (filepath, emotion, vector)
                 VALUES (%s, %s, %s);
                 """
                 cur.execute(insert_query, (relative_filepath, emotion_folder, vector_para_db))
