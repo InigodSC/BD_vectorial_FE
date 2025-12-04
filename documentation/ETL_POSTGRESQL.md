@@ -265,6 +265,23 @@ SELECT COUNT(*) FROM imagenes_fer;
 
 Esta fase utiliza Azure Data Factory (ADF) como la herramienta de orquestación y movimiento de datos (ELT). ADF es responsable de extraer los embeddings vectoriales desde la base de datos PostgreSQL en Azure y cargarlos en el Data Lakehouse (Azure Data Lake Storage Gen2), sirviendo como el motor de la "T" (Transformación/Movimiento) y la "L" (Carga).
 
+---
+### IMPORTANTE: MIGRACIÓN DE IMÁGENES A LA NUBE (AZURE BLOB STORAGE)
+
+Este es un paso manual o con script que se realiza una sola vez para mover las 28,000 imágenes desde tu PC local a un servicio de almacenamiento en la nube de Azure.
+
+1.  **CREAR UN RECURSO DE ALMACENAMIENTO:** En el Portal de Azure, crea una nueva **"Storage account"** (Cuenta de Almacenamiento) si aún no tienes una separada para archivos temporales (Nota: puedes usar la misma cuenta de tu Data Lakehouse, pero es mejor separarla para claridad).
+2.  **CREAR UN CONTENEDOR:** Dentro de esa cuenta de almacenamiento (o tu cuenta de Data Lakehouse ADLS Gen2), crea un **"Container"** (Contenedor) para las imágenes de origen (ej., **`origen-imagenes-fer`**).
+3.  **SUBIR LAS IMÁGENES:** Sube las carpetas del dataset FER2013 (la carpeta `train/` con sus subcarpetas de emociones) a este nuevo contenedor. Puedes usar herramientas como:
+    * **Azure Storage Explorer (Recomendado):** Es una aplicación gratuita de Microsoft que permite arrastrar y soltar carpetas enteras a Azure Blob Storage, manteniendo la jerarquía.
+    * **Azure CLI:** Usando el comando `az storage blob upload-batch`.
+
+Una vez que las imágenes están en la nube, el flujo ETL se vuelve nativo de Azure.
+
+![alt text](image-30.png)
+
+---
+
 ### 3.1. Creación del Data Lakehouse
 
 El Data Lakehouse se implementa utilizando **Azure Data Lake Storage Gen2 (ADLS Gen2)**, que proporciona el almacenamiento escalable y las capacidades de sistema de archivos necesarias para alojar los embeddings vectoriales en formato Parquet.
@@ -320,17 +337,18 @@ Dentro del ADF Studio, se configuran las conexiones a los almacenes de datos. Es
     ![alt text](image-16.png)
     ![alt text](image-17.png)
 
-3.  **Linked Service para Sistema de Archivos Local (Origen Local):**
-    * **Tipo:** File System (Sistema de Archivos).
-    * **Propósito:** Permite acceder a la carpeta de imágenes del dataset FER2013 en tu máquina local.
+3.  **Linked Service para Azure Blob Storage (Origen Imágenes - Cloud):**
+    * **Tipo:** Azure Blob Storage.
+    * **Propósito:** Es la fuente de los archivos binarios de imagen una vez cargados a la nube, eliminando el uso del SHIR.
     * **Configuración en ADF:**
-        * **Integration Runtime:** Se selecciona el **Self-hosted IR (SHIR)** previamente instalado en la máquina local.
-        * **Host:** Se indica la ruta de la carpeta raíz de las imágenes (ej., 'C:\Ruta\A\Donde\Descargaste\fer2013').
-        * Se proporcionan las credenciales de autenticación necesarias para que el SHIR acceda a esa ruta.
-        * Se verifica la conexión y se crea el servicio.
+        * Se selecciona el tipo Azure Blob Storage.
+        * Se elige la Cuenta de Almacenamiento donde se cargaron las imágenes.
+        * **Integration Runtime:** Se selecciona el **AutoResolveIntegrationRuntime** (o el predeterminado) para una conexión directa en la nube.
+        * La conexión se realiza directamente en la nube.
 
-    ![alt text](image-27.png)
-
+    ![alt text](image-31.png)
+    ![alt text](image-32.png)
+   
 
 ### 3.4. Definición de Datasets
 
@@ -359,15 +377,17 @@ La configuración de estos Datasets se realiza dentro del Azure Data Factory Stu
     ![alt text](image-21.png)
     ![alt text](image-22.png)
 
-3.  **Dataset de Origen Binario (DS_Images_Source - Local):**
-    * **Propósito:** Apunta a la ubicación de los archivos PNG del dataset FER2013 en el sistema de archivos local.
+3.  **Dataset de Origen Binario (DS_Images_Source):**
+    * **Propósito:** Apunta a la ubicación de los archivos PNG del dataset FER2013 en **Azure Blob Storage**, asumiendo que ya han sido cargados.
     * **Configuración en ADF:**
-        * Tipo: **File System** (Sistema de Archivos).
-        * Linked Service: Se enlaza al Linked Service del File System, el cual debe estar asociado a un **Self-hosted Integration Runtime (SHIR)** previamente instalado en la máquina local para acceder a la ruta local.
+        * Tipo: **Azure Blob Storage**.
+        * Linked Service: Se enlaza al nuevo Linked Service de **Azure Blob Storage** configurado en 3.2.3.
         * Formato: Se selecciona **Binary** (Binario) para tratar los archivos sin modificar su contenido.
-        * Ruta: Se indica la subcarpeta donde se encuentran las imágenes dentro del Host (ej., 'train').
-    ![alt text](image-25.png)
-    ![alt text](image-26.png)
+        * Ruta: Se indica la subcarpeta dentro del contenedor de Blob Storage donde se encuentran las imágenes (ej., 'train').
+
+    ![alt text](image-33.png)
+    ![alt text](image-34.png)
+    ![alt text](image-35.png)
 
 4.  **Dataset de Destino Binario (DS_Lakehouse_Images):**
     * **Propósito:** Define la ubicación para las imágenes originales sin alteración en el Data Lakehouse.
@@ -375,17 +395,77 @@ La configuración de estos Datasets se realiza dentro del Azure Data Factory Stu
         * Tipo: Azure Data Lake Storage Gen2.
         * Formato: Se selecciona **Binary** (Binario).
         * Linked Service: Se enlaza al servicio de ADLS Gen2.
+        * Ruta de Archivo: Se especifica una ruta para las imágenes (ej., 'raw/images/fer2013/') separada de los embeddings.
+
+    ![alt text](image-36.png)
+    ![alt text](image-37.png)
+    ![alt text](image-38.png)
 
 ### 3.5. Creación del Pipeline de Carga (Copy Data Activity)
 
-1.  **Crear Pipeline:** Se crea un nuevo Pipeline (ej., `PL_Migrar_Embeddings`) en ADF.
-2.  **Añadir Actividad de Copia de Datos:** Se incluye una actividad de *Copy Data* para mover los datos.
-    * **Configuración de Origen (Source):** Se utiliza el Dataset de origen (`DS_PgVector_ImagenesFer`).
-    * **Configuración de Destino (Sink):** Se utiliza el Dataset de destino (`DS_Lakehouse_Embeddings`) configurado con el formato Parquet.
-    * **Manejo de Vectores:** ADF gestiona la conversión de la columna `VECTOR(512)` de PostgreSQL en un tipo de dato compatible (como una *array* o *string* serializada) dentro del archivo Parquet.
+El Pipeline (ej., `PL_Migrar_Datos_FER`) debe orquestar dos tareas de copia distintas y paralelas para manejar los dos tipos de datos desde sus orígenes en la nube hasta el Data Lakehouse (ADLS Gen2).
+
+1.  **Crear Pipeline:** Se crea un nuevo Pipeline en ADF Studio (ej., `PL_Migrar_Datos_FER`).
+2.  **Añadir Dos Actividades de Copia de Datos:** Se incluyen dos actividades de *Copy Data* independientes.
+
+#### 1. Flujo de Embeddings (PostgreSQL a Parquet)
+
+Esta actividad traslada los vectores numéricos y metadatos desde la base de datos a un formato analítico optimizado, corrigiendo dinámicamente la ruta del archivo (filepath) para que coincida con la ubicación final de las imágenes en el Data Lakehouse.
+
+* **Nombre de Actividad:** `Copy_Embeddings_PostgreSQL`
+* **Configuración de Origen (Source):** Se utiliza el Dataset de origen (`DS_PgVector_ImagenesFer`), pero debes cambiar el modo de extracción de **"Table"** a **"Query"**.
+* **Consulta SQL de Extracción (Transformación de Ruta):**
+    * Introduce la siguiente consulta en el campo "Query". Esta consulta concatena el prefijo de la ruta y le da un alias (`filepath_corregido`) a la columna resultante.
+    ```sql
+    SELECT
+        id,
+        emotion,
+        vector,
+        -- CAMBIO CLAVE: Concatena el prefijo de la ruta del Data Lakehouse
+        'raw/imagenes/train/' || filepath AS filepath
+    FROM
+        public.imagenes_fer;
+    ```
+* **Configuración de Destino (Sink):** Se utiliza el Dataset de destino (`DS_Lakehouse_Embeddings`) configurado con el formato **Parquet**.
+* **Manejo de Vectores:** ADF gestiona la conversión de la columna `VECTOR(512)` de PostgreSQL en un tipo de dato compatible (como una *array* o *string* serializada) dentro del archivo Parquet.
+* **Mapeo (Mapping):** Dentro de la actividad Copy Data, ve a la pestaña "Mapping" y asegúrate de que la columna de origen **`filepath_corregido`** (generada por la consulta SQL) se mapee correctamente a la columna destino **`filepath`** del archivo Parquet.
+
+![alt text](image-39.png)
+
+#### 2. Flujo de Imágenes (Blob Storage a Binary)
+
+Esta actividad traslada los archivos de imagen binarios sin alteración a la zona de datos crudos (raw) del Data Lakehouse.
+
+* **Nombre de Actividad:** `Copy_Images_BlobStorage`
+* **Configuración de Origen (Source):** Se utiliza el Dataset de origen binario (`DS_Images_Source`), conectado al Linked Service de Azure Blob Storage (3.2.3).
+* **Configuración de Destino (Sink):** Se utiliza el Dataset de destino binario (`DS_Lakehouse_Images`) configurado con el formato **Binary**.
+* **Comportamiento de Copia:** Es crucial configurar esta actividad para que preserve la jerarquía de las carpetas, **`Preserve hierarchy`** (ej., `train/feliz/`) al copiar de Blob Storage al Data Lakehouse, garantizando que los `filepaths` de los embeddings sigan siendo válidos.
 
 ### 3.6. Ejecución y Monitoreo
 
-1.  **Verificación:** Se ejecuta el Pipeline en modo *Debug* para validar la transferencia de los datos vectoriales.
-2.  **Programación:** Se configura un *Trigger* para automatizar la ejecución del flujo de datos (ejecución manual o programada).
-3.  **Monitoreo:** Se utiliza la sección de Monitoreo de ADF para confirmar el éxito de la transferencia y el volumen de datos movido.
+Esta fase valida la corrección de rutas, la conexión Cloud-to-Cloud y el éxito del traslado de datos vectoriales y binarios al Data Lakehouse.
+
+
+
+#### 1. Verificación del Flujo (Modo Debug)
+
+* **Propósito:** Asegurar que ambas actividades de copia (`Copy_Embeddings_PostgreSQL` y `Copy_Images_BlobStorage`) se ejecuten sin errores.
+* **Ejecución:** Inicia el Pipeline en modo **"Debug"** (Depurar) para una prueba de validación.
+* **Validación de Embeddings:** Confirma el estado "Succeeded" y verifica en los detalles que el **número de filas leídas** de PostgreSQL sea correcto. Esto valida que la **Source Query** que corrige el `filepath` funciona.
+* **Validación de Imágenes:** Confirma el estado "Succeeded" y verifica el **volumen de datos (Bytes)** copiados de Azure Blob Storage. Esto valida que la conexión Cloud-to-Cloud es exitosa.
+
+    ![alt text](image-40.png)
+
+#### 2. Programación de la Carga (Triggers)
+
+* **Publicación:** Haz clic en **"Publish all"** (Publicar todo) antes de programar la ejecución.
+* **Trigger:** Vamos a ir a **"Add Trigger"** y le vamos a dar clic a **"Trigger Now"**
+
+
+#### 3. Monitoreo y Validación de Destino
+
+* **Panel de Monitoreo:** En la pestaña "Monitor" de ADF, revisa el estado de la ejecución (debe ser **"Succeeded"**).
+![alt text](image-41.png)
+* **Validación de Destino (ADLS Gen2):**
+    * Verifica que los archivos **Parquet** (Embeddings) se hayan creado en la ruta: `raw/embeddings/fer2013/`.
+    * Verifica que los archivos **Binarios** (Imágenes) se hayan creado en la ruta: `raw/images/fer2013/train/` y que se haya **mantenido la jerarquía de las carpetas de emoción** (gracias a la configuración 'Preserve hierarchy').
