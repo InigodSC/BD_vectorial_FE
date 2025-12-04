@@ -261,3 +261,131 @@ Verificar conteo de filas:
 SELECT COUNT(*) FROM imagenes_fer;
 ```
 
+## 3. Orquestación y Procesamiento (Azure Data Factory)
+
+Esta fase utiliza Azure Data Factory (ADF) como la herramienta de orquestación y movimiento de datos (ELT). ADF es responsable de extraer los embeddings vectoriales desde la base de datos PostgreSQL en Azure y cargarlos en el Data Lakehouse (Azure Data Lake Storage Gen2), sirviendo como el motor de la "T" (Transformación/Movimiento) y la "L" (Carga).
+
+### 3.1. Creación del Data Lakehouse
+
+El Data Lakehouse se implementa utilizando **Azure Data Lake Storage Gen2 (ADLS Gen2)**, que proporciona el almacenamiento escalable y las capacidades de sistema de archivos necesarias para alojar los embeddings vectoriales en formato Parquet.
+
+1.  **Creación de la Storage Account:**
+    * En el Portal de Azure, se crea un recurso de **"Storage account"** .
+    * Se selecciona la misma región y grupo de recursos utilizados para Azure PostgreSQL y Azure Data Factory para optimizar el rendimiento y la latencia.
+    ![alt text](image-14.png)
+
+2.  **Habilitación de Namespace Jerárquico (Configuración de Data Lake):**
+    * **Paso Crucial:** Durante la configuración, se debe navegar a la pestaña **"Advanced"** (Opciones avanzadas).
+    * En la sección **"Data Lake Storage Gen2"**, se habilita la opción **"Hierarchical namespace"** (Espacio de nombres jerárquico). Esta característica es esencial, ya que permite la gestión de directorios y archivos de manera eficiente, replicando la estructura de un sistema de archivos tradicional, lo que define el componente Data Lakehouse.
+    ![alt text](image-15.png)
+
+3.  **Organización de Contenedores:**
+    * Una vez creada la cuenta, se establece una estructura lógica dentro de un contenedor (ej., 'raw' o 'landing').
+    * Azure Data Factory (ADF) cargará los archivos Parquet en esta ubicación, manteniendo la estructura de carpetas definida en el Dataset de destino (ej., 'raw/embeddings/fer2013/').
+
+
+### 3.2. Creación del Servicio Azure Data Factory (ADF)
+
+1.  **Creación del Recurso ADF:** En el Portal de Azure, se crea un nuevo recurso de **Data Factory (V2)**. Se recomienda usar la misma región que Azure PostgreSQL y el Data Lakehouse para reducir la latencia.
+
+    ![alt text](image-9.png)
+    ![alt text](image-10.png)
+
+2.  **Acceso al Studio:** Una vez desplegado, se accede al **Azure Data Factory Studio** para comenzar la configuración.
+
+### 3.3. Configuración de Conexiones (Linked Services)
+
+Dentro del ADF Studio, se configuran las conexiones a los almacenes de datos. Esto se realiza en la sección "Manage" (Administrar, icono del enchufe) de ADF Studio.
+
+1.  **Linked Service para Azure PostgreSQL (Origen):**
+    * **Tipo:** Azure Database for PostgreSQL.
+    * **Propósito:** Permite a ADF leer los datos vectoriales de la tabla 'imagenes_fer'.
+    * **Configuración en ADF:**
+        * Se selecciona el tipo Azure Database for PostgreSQL.
+        * Se introducen los parámetros de conexión del servidor Flexible Server: Host Name, Database name (ej., 'fer_vct'), User name (<AZURE_ADMIN>), y Password, tal como se configuraron en el Paso 2.
+        * Es obligatorio realizar una prueba de conexión (Test connection) antes de crear el servicio.
+
+    ![alt text](image-12.png)
+    ![alt text](image-13.png)
+
+2.  **Linked Service para Data Lakehouse (Destino):**
+    * **Tipo:** Azure Data Lake Storage Gen2 (ADLS Gen2).
+    * **Propósito:** Permite a ADF escribir los archivos Parquet resultantes en el Data Lake.
+    * **Configuración en ADF:**
+        * Se selecciona el tipo Azure Data Lake Storage Gen2.
+        * Se elige la Cuenta de Almacenamiento (Storage account name) correspondiente a tu Data Lakehouse.
+        * Se recomienda usar la Identidad Administrada (Managed Identity) para la autenticación por motivos de seguridad.
+        * Se verifica la conexión y se crea el servicio.
+
+    ![alt text](image-16.png)
+    ![alt text](image-17.png)
+
+3.  **Linked Service para Sistema de Archivos Local (Origen Local):**
+    * **Tipo:** File System (Sistema de Archivos).
+    * **Propósito:** Permite acceder a la carpeta de imágenes del dataset FER2013 en tu máquina local.
+    * **Configuración en ADF:**
+        * **Integration Runtime:** Se selecciona el **Self-hosted IR (SHIR)** previamente instalado en la máquina local.
+        * **Host:** Se indica la ruta de la carpeta raíz de las imágenes (ej., 'C:\Ruta\A\Donde\Descargaste\fer2013').
+        * Se proporcionan las credenciales de autenticación necesarias para que el SHIR acceda a esa ruta.
+        * Se verifica la conexión y se crea el servicio.
+
+    ![alt text](image-27.png)
+
+
+### 3.4. Definición de Datasets
+
+Los Datasets apuntan a los datos específicos dentro de las conexiones definidas. Para manejar los dos flujos de datos (embeddings desde la nube y binarios desde local) se requieren cuatro Datasets.
+
+La configuración de estos Datasets se realiza dentro del Azure Data Factory Studio en la sección "Author" (Autor).
+
+1.  **Dataset de Origen (DS_PgVector_ImagenesFer):**
+    * **Propósito:** Apunta a la tabla 'imagenes_fer' en Azure PostgreSQL (para extraer los embeddings).
+    * **Configuración en ADF:**
+        * Tipo: Azure Database for PostgreSQL.
+        * Linked Service: Se enlaza al servicio de PostgreSQL configurado en 3.2.1.
+        * Tabla: Se selecciona la tabla 'imagenes_fer'.
+    ![alt text](image-23.png)
+    ![alt text](image-24.png)
+
+
+2.  **Dataset de Destino (DS_Lakehouse_Embeddings):**
+    * **Propósito:** Define la ubicación y el formato para los embeddings en el Data Lakehouse.
+    * **Configuración en ADF:**
+        * Tipo: Azure Data Lake Storage Gen2.
+        * Formato: Se selecciona **Parquet** por ser columnar y optimizado para análisis.
+        * Linked Service: Se enlaza al servicio de ADLS Gen2 configurado en 3.2.2.
+        * Ruta de Archivo: Se especifica la ruta lógica (ej., 'raw/embeddings/fer2013/').
+    ![alt text](image-20.png)
+    ![alt text](image-21.png)
+    ![alt text](image-22.png)
+
+3.  **Dataset de Origen Binario (DS_Images_Source - Local):**
+    * **Propósito:** Apunta a la ubicación de los archivos PNG del dataset FER2013 en el sistema de archivos local.
+    * **Configuración en ADF:**
+        * Tipo: **File System** (Sistema de Archivos).
+        * Linked Service: Se enlaza al Linked Service del File System, el cual debe estar asociado a un **Self-hosted Integration Runtime (SHIR)** previamente instalado en la máquina local para acceder a la ruta local.
+        * Formato: Se selecciona **Binary** (Binario) para tratar los archivos sin modificar su contenido.
+        * Ruta: Se indica la subcarpeta donde se encuentran las imágenes dentro del Host (ej., 'train').
+    ![alt text](image-25.png)
+    ![alt text](image-26.png)
+
+4.  **Dataset de Destino Binario (DS_Lakehouse_Images):**
+    * **Propósito:** Define la ubicación para las imágenes originales sin alteración en el Data Lakehouse.
+    * **Configuración en ADF:**
+        * Tipo: Azure Data Lake Storage Gen2.
+        * Formato: Se selecciona **Binary** (Binario).
+        * Linked Service: Se enlaza al servicio de ADLS Gen2.
+
+### 3.5. Creación del Pipeline de Carga (Copy Data Activity)
+
+1.  **Crear Pipeline:** Se crea un nuevo Pipeline (ej., `PL_Migrar_Embeddings`) en ADF.
+2.  **Añadir Actividad de Copia de Datos:** Se incluye una actividad de *Copy Data* para mover los datos.
+    * **Configuración de Origen (Source):** Se utiliza el Dataset de origen (`DS_PgVector_ImagenesFer`).
+    * **Configuración de Destino (Sink):** Se utiliza el Dataset de destino (`DS_Lakehouse_Embeddings`) configurado con el formato Parquet.
+    * **Manejo de Vectores:** ADF gestiona la conversión de la columna `VECTOR(512)` de PostgreSQL en un tipo de dato compatible (como una *array* o *string* serializada) dentro del archivo Parquet.
+
+### 3.6. Ejecución y Monitoreo
+
+1.  **Verificación:** Se ejecuta el Pipeline en modo *Debug* para validar la transferencia de los datos vectoriales.
+2.  **Programación:** Se configura un *Trigger* para automatizar la ejecución del flujo de datos (ejecución manual o programada).
+3.  **Monitoreo:** Se utiliza la sección de Monitoreo de ADF para confirmar el éxito de la transferencia y el volumen de datos movido.

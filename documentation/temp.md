@@ -1,7 +1,3 @@
-## 2. Ingesta y Migración Inicial
-
-* **Destino Inicial:** **Azure PostgreSQL (Nube)**. Actúa como el primer punto de *staging* en la nube.
-
 ## 3. Orquestación y Preparación
 
 * **Herramienta:** **Azure Data Factory (ADF)**.
@@ -14,3 +10,6 @@
 ## 5. Consumo y Análisis Avanzado
 
 * **Plataforma de Consumo:** **Microsoft AI Foundry (Nube)**. Accede al lakehouse para el entrenamiento de modelos, RAG y la entrega de aplicaciones de IA Generativa.
+
+
+
