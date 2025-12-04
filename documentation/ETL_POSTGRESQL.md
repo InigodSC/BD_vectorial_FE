@@ -469,3 +469,54 @@ Esta fase valida la corrección de rutas, la conexión Cloud-to-Cloud y el éxit
 * **Validación de Destino (ADLS Gen2):**
     * Verifica que los archivos **Parquet** (Embeddings) se hayan creado en la ruta: `raw/embeddings/fer2013/`.
     * Verifica que los archivos **Binarios** (Imágenes) se hayan creado en la ruta: `raw/images/fer2013/train/` y que se haya **mantenido la jerarquía de las carpetas de emoción** (gracias a la configuración 'Preserve hierarchy').
+
+
+## 4. Conexion de Microsoft AI Foundry al Datalake
+
+Esta es la fase final, donde los datos vectoriales (embeddings) y las imágenes binarias se utilizan para construir aplicaciones de Inteligencia Artificial.
+
+
+### 1. Desplegar Microsoft AI Foundry
+
+
+El despliegue de **Microsoft AI Foundry** (o el servicio específico de Azure AI) consiste en configurar el entorno para acceder y procesar los datos en el Data Lakehouse.
+
+![alt text](image-42.png)
+
+* **Configuración del Acceso:** El servicio Foundry se configura con acceso de lectura directo al **Data Lakehouse (ADLS Gen2)** para obtener los datos.
+* **Indexación:** Los **vectores** leídos desde los archivos Parquet (`raw/embeddings/fer2013/`) se cargan en un índice vectorial optimizado (ej., Azure AI Search o un índice vectorial nativo de Foundry). Esto permite realizar consultas de similitud ultrarrápidas, que son esenciales para el consumo de embeddings.
+
+![alt text](image-43.png)
+
+
+### 2. Ejemplo de Uso: Búsqueda de Emociones Similares (Similarity Search)
+
+Para conectar con nuestro Datalake vamos a ir a `Centro de Administración`, `Connected resources`, seleccionamos `Nueva conexión`.
+
+Busca y selecciona el tipo de conexión apropiado, como Storage account (Cuenta de almacenamiento).
+
+![alt text](image-44.png)
+![alt text](image-45.png)
+
+#### EXTRA 
+
+Este ejemplo conceptual simula cómo una aplicación construida en Foundry consumiría los datos almacenados para realizar una tarea de **búsqueda por similitud vectorial**.
+
+| Paso | Acción Conceptual en la Plataforma Foundry | Datos Consumidos |
+| :--- | :--- | :--- |
+| **1. Entrada del Usuario** | Un usuario sube una **imagen de consulta**. | Imagen Binaria (Input) |
+| **2. Vectorización** | Un modelo de Deep Learning genera el **vector de consulta** (512 dimensiones) a partir de la imagen de entrada. | Modelo de Deep Learning |
+| **3. Búsqueda de Similitud** | El **vector de consulta** se compara contra **todos los vectores indexados** en el índice vectorial para encontrar el Top K (ej., los 5) más similares (distancia mínima). | Columna **`vector`** (desde el índice) |
+| **4. Recuperación de Metadatos** | La búsqueda devuelve los **`filepaths`** y las etiquetas **`emotion`** asociadas a esos vectores más similares. | Columnas **`filepath`** y **`emotion`** |
+| **5. Presentación de Resultados** | Usando el `filepath` (ej., `raw/imagenes/train/feliz/123.png`), la aplicación accede al **Data Lakehouse** y recupera el archivo de imagen binario para mostrarlo al usuario. | Archivo Binario (PNG) en el Data Lakehouse |
+
+**Resultado:** La aplicación muestra las imágenes del dataset FER2013 que tienen las expresiones faciales más similares a la imagen proporcionada por el usuario.
+
+![alt text](image-47.png)
+![alt text](image-48.png)
+
+
+
+
+
+
