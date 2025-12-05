@@ -498,22 +498,6 @@ Busca y selecciona el tipo de conexión apropiado, como Storage account (Cuenta 
 ![alt text](image-44.png)
 ![alt text](image-45.png)
 
-#### EXTRA 
-
-Este ejemplo conceptual simula cómo una aplicación construida en Foundry consumiría los datos almacenados para realizar una tarea de **búsqueda por similitud vectorial**.
-
-| Paso | Acción Conceptual en la Plataforma Foundry | Datos Consumidos |
-| :--- | :--- | :--- |
-| **1. Entrada del Usuario** | Un usuario sube una **imagen de consulta**. | Imagen Binaria (Input) |
-| **2. Vectorización** | Un modelo de Deep Learning genera el **vector de consulta** (512 dimensiones) a partir de la imagen de entrada. | Modelo de Deep Learning |
-| **3. Búsqueda de Similitud** | El **vector de consulta** se compara contra **todos los vectores indexados** en el índice vectorial para encontrar el Top K (ej., los 5) más similares (distancia mínima). | Columna **`vector`** (desde el índice) |
-| **4. Recuperación de Metadatos** | La búsqueda devuelve los **`filepaths`** y las etiquetas **`emotion`** asociadas a esos vectores más similares. | Columnas **`filepath`** y **`emotion`** |
-| **5. Presentación de Resultados** | Usando el `filepath` (ej., `raw/imagenes/train/feliz/123.png`), la aplicación accede al **Data Lakehouse** y recupera el archivo de imagen binario para mostrarlo al usuario. | Archivo Binario (PNG) en el Data Lakehouse |
-
-**Resultado:** La aplicación muestra las imágenes del dataset FER2013 que tienen las expresiones faciales más similares a la imagen proporcionada por el usuario.
-
-![alt text](image-47.png)
-![alt text](image-48.png)
 
 
 
