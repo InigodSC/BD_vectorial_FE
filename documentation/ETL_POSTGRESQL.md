@@ -488,9 +488,6 @@ El despliegue de **Microsoft AI Foundry** (o el servicio específico de Azure AI
 
 ![alt text](image-43.png)
 
-
-### 2. Ejemplo de Uso: Búsqueda de Emociones Similares (Similarity Search)
-
 Para conectar con nuestro Datalake vamos a ir a `Centro de Administración`, `Connected resources`, seleccionamos `Nueva conexión`.
 
 Busca y selecciona el tipo de conexión apropiado, como Storage account (Cuenta de almacenamiento).
